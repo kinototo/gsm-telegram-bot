@@ -15,6 +15,7 @@ mailboxes = json.loads(open("bot_mailbox_tg.json","r",encoding="utf8").read())
 classifier_settings = json.loads(open("bot_mailboxes.json","r",encoding="utf8").read())
 TG_Bot_Key = json.loads(open("bot_config.json",encoding="utf8").read())["TG_Bot_Key"]
 activedevices = {}
+tg_boardcast_bot = Bot(TG_Bot_Key)
 
 def mailbox_classifier(smsSender,smsText,phoneDict,kwordDict,defaultMailbox,mainMailbox):
     if smsSender == None or smsText == None:
@@ -55,6 +56,12 @@ def filter_del_kword(keyword):
     del classifier_settings["kwordDict"][keyword]
     open("bot_mailboxes.json","w",encoding="utf8").write(json.dumps(classifier_settings,indent=2,ensure_ascii=False))
     return "OK"
+def filter_set_special(special,mailbox):
+    if mailbox not in mailboxes:
+        raise KeyError(f"The mailbox `{mailbox}` doesn't have any member. Please subscribe it first.")
+    classifier_settings[special] = mailbox
+    open("bot_mailboxes.json","w",encoding="utf8").write(json.dumps(classifier_settings,indent=2,ensure_ascii=False))
+    return filter_get_mailbox(mailbox)
 
 def filter_get_mailbox(mailbox_in=None,recursive=True):
     if mailbox_in == None and recursive==True:
@@ -91,7 +98,7 @@ def filter_get_mailbox(mailbox_in=None,recursive=True):
         ret["keyword"]=kwordList
     return ret
 
-tg_boardcast_bot = Bot(TG_Bot_Key)
+
 def broadcast_msg(msg,mailbox,parse_mode=None):
     if mailbox not in mailboxes:
         msg = f'Warning: Mailbox "{mailbox}" are not found. Redirect to mailbox "{classifier_settings["mainMailbox"]}".\n' + msg
@@ -160,6 +167,17 @@ def initadd():
 
 def device_add(dev,buadrate=115200,pin=None,smsTextMode=False,force=False,write2file=True):
     buadrate=int(buadrate)
+    if type(pin) == str:
+        if pin=="None":
+            pin = None
+        else:
+            pin = int(pin)
+    if type(smsTextMode) == str:
+        smsTextMode = smsTextMode == "True"
+    if type(force) == str:
+        force = force == "True"
+    if type(write2file) == str:
+        write2file = write2file == "True"
     devicelist = serial.tools.list_ports.comports()
     deviceinfo = {port.device:{"dev":port.device,"SN":port.serial_number} for port in devicelist}
     if dev not in deviceinfo and force == False:
@@ -262,8 +280,6 @@ def device_read_sms(dev=None,index=None,delete=False):
 def device_send_sms(dev,number,content):
     return activedevices[dev]["modem"].sendSms(number,content)
 
-initadd()
-
 def start_func(update: Update,context :CallbackContext ) -> None:
     update.message.text = "/mailbox s"
     return mailbox_func(update,context)
@@ -283,7 +299,8 @@ def tg_reply_error(f):
 def mailbox_func(update: Update,context :CallbackContext ) -> None:
     msg_in = update.message.text
     print(update.message.text)
-    command = list(filter(None, shlex.split( update.message.text[1:])))[1:]
+    prog    = list(filter(None, shlex.split( msg_in[1:])))[0]
+    command = list(filter(None, shlex.split( msg_in[1:])))[1:]
     command = [""] if len(command) == 0 else command
     chatid = int(update.message.chat.id)
     if command[0] == "subscribe" or command[0] == "s":
@@ -310,14 +327,14 @@ def mailbox_func(update: Update,context :CallbackContext ) -> None:
         update.message.reply_text(f'User {chatid_2del} deleted from mailbox "{mailbox}"')
         open("bot_mailbox_tg.json","w",encoding="utf8").write(json.dumps(mailboxes,indent=2,ensure_ascii=False))
         return
-    update.message.reply_text("""Usage:
- s [mailbox_name]: Subscribe the mailbox.
- l [mailbox_name]: List all subscribed users in the mailboxes.
- us [mailbox_name] [user id]: Delete me or specific user from the mailbox.
+    update.message.reply_text(f"""Usage:
+/{prog} s [mailbox_name]: Subscribe the mailbox.
+/{prog} l [mailbox_name]: List all subscribed users in the mailboxes.
+/{prog} us [mailbox_name] [user id]: Delete me or specific user from the mailbox.
 Alias:
- subscribe s
- list l
- unsubscribe us
+ s=subscribe
+ l=list
+ us=unsubscribe
 """)
     return
 
@@ -325,6 +342,7 @@ Alias:
 def device_func(update: Update,context :CallbackContext ) -> None:
     msg_in = update.message.text.split("\n",1)[0]
     print(update.message.text)
+    prog =    list(filter(None, shlex.split( msg_in[1:])))[0]
     command = list(filter(None, shlex.split( msg_in[1:])))[1:]
     command = [""] if len(command) == 0 else command
     params = [] if len(command) <= 1 else command[1:]
@@ -368,27 +386,27 @@ def device_func(update: Update,context :CallbackContext ) -> None:
         ret += yaml.dump(device_read_sms(params[0],params[1],delete=True),allow_unicode=True,sort_keys=False)
         update.message.reply_text(ret)
     else:
-        update.message.reply_text( """Usage:
-/device scan
-/device add devport [buadrate=115200] [pin=1234] [smsTextMode=False] [force=False]
-/device del devport
-/device open devport
-/device close devport
-/device online devport
-/device offline devport
-/device status [devport]
-/device readsms [devport [index]]
-/device delsms devport [index|all]
-/device sendsms devport number (newline)
+        update.message.reply_text( f"""Usage:
+/{prog} scan
+/{prog} add devport [buadrate=115200] [pin=None or 0000] [smsTextMode=False] [force=False]
+/{prog} del devport
+/{prog} open devport
+/{prog} close devport
+/{prog} online devport
+/{prog} offline devport
+/{prog} status [devport]
+/{prog} readsms [devport [index]]
+/{prog} delsms devport [index|all]
+/{prog} sendsms devport number (newline)
 SMS_content_here
 Alias:
- a add
- d del
- on online
- off offline airplanemode
- status list l
- r readsms
- s sendsms
+ a=add
+ d=del
+ on=online
+ off=offline=airplanemode
+ status=list=l
+ r=readsms
+ s=sendsms
 """ )
     return
 
@@ -396,45 +414,57 @@ Alias:
 def filter_func(update: Update,context :CallbackContext ) -> None:
     msg_in = update.message.text
     print(update.message.text)
+    prog =    list(filter(None, shlex.split( msg_in[1:])))[0]
     command = list(filter(None, shlex.split( msg_in[1:])))[1:]
     command = [""] if len(command) == 0 else command
     params = [] if len(command) <= 1 else command[1:]
     target_dev = None
-    if command[0] == "get" or command[0] == "g":
+    if command[0] == "list" or command[0] == "l":
+        update.message.reply_text( yaml.dump(filter_get_mailbox(*params),allow_unicode=True,sort_keys=False)  )
+    elif command[0] == "get" or command[0] == "g":
         if params[0] == "number" or params[0] == "n":
             update.message.reply_text( filter_get_number(params[1]) )
         elif params[0] == "kword" or params[0] == "k" or params[0] == "keyword":
             update.message.reply_text( filter_get_kword(params[1]) )
-        elif params[0] == "mailbox" or params[0] == "m":
-            update.message.reply_text( yaml.dump(filter_get_mailbox(*params[1:]),allow_unicode=True,sort_keys=False)  )
         else:
-            update.message.reply_text( "Usage: /filter get [n|k|m|number|kword|mailbox] [target]" )
+            update.message.reply_text( "Usage: /filter get [n|k|number|kword] [num_or_kword]" )
     elif command[0] == "set" or command[0] == "s":
         if params[0] == "number" or params[0] == "n":
             update.message.reply_text( filter_add_number(params[1],params[2]) )
         elif params[0] == "kword" or params[0] == "k" or params[0] == "keyword":
             update.message.reply_text( filter_add_kword(params[1],params[2]) )
         else:
-            update.message.reply_text( "Usage: /filter set [n|k|number|kword] target mailbox" )
+            update.message.reply_text( "Usage: /filter set [n|k|number|kword] num_or_kword mailbox_name" )
+    elif command[0] == "setdefault" or command[0] == "sd":
+        if params[0] == "defaultMailbox" or params[0] == "default":
+            update.message.reply_text( filter_set_special("defaultMailbox",params[1]))
+        elif params[0] == "mainMailbox" or params[0] == "main":
+            update.message.reply_text( filter_set_special("mainMailbox",params[1]))
+        else:
+            update.message.reply_text( "Usage: /filter setdefault [defaultMailbox|mainMailbox] mailbox_name" )
     elif command[0] == "del" or command[0] == "d":
         if params[0] == "number" or params[0] == "n":
             update.message.reply_text( filter_del_number(params[1]) )
         elif params[0] == "kword" or params[0] == "k" or params[0] == "keyword":
             update.message.reply_text( filter_del_kword(params[1]) )
         else:
-            update.message.reply_text( "Usage: /filter del [n|k|number|kword] target" )
+            update.message.reply_text( "Usage: /filter del [n|k|number|kword] num_or_kword" )
     else:
-        update.message.reply_text( """Usage:
-/filter get [number|kword|mailbox] [target]
-/filter set [number|kword] target mailbox
-/filter del [number|kword] target
+        update.message.reply_text( f"""Usage:
+/{prog} list [mailbox_name]
+/{prog} get [number|kword] num_or_kword
+/{prog} set [number|kword] num_or_kword mailbox_name
+/{prog} setdefault [defaultMailbox|mainMailbox] mailbox_name
+/{prog} del [number|kword] num_or_kword
 Alias:
- g get
- s set
- d del
- n number
- k kword keyword
- m mailbox
+ l=list
+ g=get
+ s=set
+ sd=setdefault
+ d=del
+ n=number
+ k=kword=keyword
+ m=mailbox
 """ )
     return
 
@@ -451,6 +481,7 @@ Use following command to get more info
 """ )
     return
 
+initadd()
 updater = Updater(TG_Bot_Key)
 updater.dispatcher.add_handler(CommandHandler('help', help_func))
 updater.dispatcher.add_handler(CommandHandler('mailbox', mailbox_func))
